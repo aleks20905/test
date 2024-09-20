@@ -2,9 +2,7 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
-	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -62,11 +60,20 @@ func newListKeyMap() *listKeyMap {
 	}
 }
 
+type inputState int
+
+const (
+	normalState inputState = iota
+	addingItemState
+)
+
 type model struct {
 	list          list.Model
 	itemGenerator *randomItemGenerator
 	keys          *listKeyMap
 	delegateKeys  *delegateKeyMap
+	inputModel    inputModel
+	state         inputState
 }
 
 func newModel() model {
@@ -97,11 +104,16 @@ func newModel() model {
 		}
 	}
 
+	// Setup text inputs
+	inputModel := newInputModel()
+
 	return model{
 		list:          groceryList,
 		keys:          listKeys,
 		delegateKeys:  delegateKeys,
 		itemGenerator: &itemGenerator,
+		inputModel:    inputModel,
+		state:         normalState,
 	}
 }
 
@@ -110,20 +122,36 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := appStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
 
 	case tea.KeyMsg:
-		// Don't match any of the keys below if we're actively filtering.
-		if m.list.FilterState() == list.Filtering {
-			break
+		// Handle adding item mode
+		if m.state == addingItemState {
+			var cmd tea.Cmd
+			m.inputModel, cmd = m.inputModel.Update(msg)
+			if m.inputModel.Submitted {
+				newItem := item{
+					title:       m.inputModel.inputs[0].Value(),
+					description: m.inputModel.inputs[1].Value(),
+				}
+				insCmd := m.list.InsertItem(0, newItem)
+				statusCmd := m.list.NewStatusMessage(statusMessageStyle("Added " + newItem.Title()))
+				m.state = normalState // Return to normal state
+				return m, tea.Batch(insCmd, statusCmd)
+			}
+			return m, cmd
 		}
 
+		// Normal list interaction
 		switch {
+		case key.Matches(msg, m.keys.insertItem):
+			m.state = addingItemState
+			m.inputModel = newInputModel() // Reset input fields
+			return m, nil
+
 		case key.Matches(msg, m.keys.toggleTitleBar):
 			v := !m.list.ShowTitle()
 			m.list.SetShowTitle(v)
@@ -138,31 +166,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.toggleHelpMenu):
 			m.list.SetShowHelp(!m.list.ShowHelp())
 			return m, nil
-
-		case key.Matches(msg, m.keys.insertItem):
-			m.delegateKeys.remove.SetEnabled(true)
-			newItem := m.itemGenerator.next()
-			insCmd := m.list.InsertItem(0, newItem)
-			statusCmd := m.list.NewStatusMessage(statusMessageStyle("Added " + newItem.Title()))
-			return m, tea.Batch(insCmd, statusCmd)
 		}
 	}
 
-	// This will also call our delegate's update function.
+	// Normal list update
 	newListModel, cmd := m.list.Update(msg)
 	m.list = newListModel
-	cmds = append(cmds, cmd)
 
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
 func (m model) View() string {
+	if m.state == addingItemState {
+		return appStyle.Render(m.inputModel.View())
+	}
 	return appStyle.Render(m.list.View())
 }
 
 func main() {
-	rand.Seed(time.Now().UTC().UnixNano())
-
 	if _, err := tea.NewProgram(newModel(), tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
