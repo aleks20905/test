@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -26,11 +27,25 @@ var (
 type item struct {
 	title       string
 	description string
+	pass        string
+	showPass    bool
 }
 
-func (i item) Title() string       { return i.title }
-func (i item) Description() string { return i.description }
+func (i item) Title() string { return i.title }
+func (i item) Description() string {
+	if i.showPass {
+		return fmt.Sprintf("%-15s | %-10s", i.description, i.pass)
+	}
+	return fmt.Sprintf("%-15s | %-10s", i.description, maskPassword(i.pass))
+}
+
+// func (i item) Pass() string { return i.pass }
+
 func (i item) FilterValue() string { return i.title }
+
+func maskPassword(password string) string {
+	return strings.Repeat("*", len(password))
+}
 
 type listKeyMap struct {
 	toggleTitleBar  key.Binding
@@ -92,8 +107,8 @@ func newModel() model {
 
 	// Setup list
 	delegate := newItemDelegate(delegateKeys)
-	groceryList := list.New(items, delegate, 0, 0)
-	groceryList.Title = "Groceries"
+	groceryList := list.New(items, delegate, 200, 200)
+	groceryList.Title = "Accaunts"
 	groceryList.Styles.Title = titleStyle
 	groceryList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -136,6 +151,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				newItem := item{
 					title:       m.inputModel.inputs[0].Value(),
 					description: m.inputModel.inputs[1].Value(),
+					pass:        m.inputModel.inputs[2].Value(),
+					showPass:    false,
 				}
 				insCmd := m.list.InsertItem(0, newItem)
 				statusCmd := m.list.NewStatusMessage(statusMessageStyle("Added " + newItem.Title()))

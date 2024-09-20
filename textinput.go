@@ -26,7 +26,7 @@ type inputModel struct {
 
 func newInputModel() inputModel {
 	m := inputModel{
-		inputs: make([]textinput.Model, 2),
+		inputs: make([]textinput.Model, 3),
 	}
 
 	var t textinput.Model
@@ -42,7 +42,12 @@ func newInputModel() inputModel {
 			t.PromptStyle = focusedStyle
 			t.TextStyle = focusedStyle
 		case 1:
-			t.Placeholder = "Description"
+			t.Placeholder = "desc"
+
+		case 2:
+			t.Placeholder = "Password"
+			t.EchoMode = textinput.EchoPassword
+			t.EchoCharacter = '•'
 		}
 
 		m.inputs[i] = t
@@ -50,7 +55,6 @@ func newInputModel() inputModel {
 
 	return m
 }
-
 func (m inputModel) Update(msg tea.Msg) (inputModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -105,8 +109,8 @@ func (m inputModel) Update(msg tea.Msg) (inputModel, tea.Cmd) {
 func (m inputModel) View() string {
 	var b strings.Builder
 
-	for i := range m.inputs {
-		b.WriteString(m.inputs[i].View())
+	for i, input := range m.inputs {
+		b.WriteString(input.View())
 		if i < len(m.inputs)-1 {
 			b.WriteRune('\n')
 		}

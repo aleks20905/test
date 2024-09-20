@@ -148,6 +148,7 @@ func (r *randomItemGenerator) next() item {
 	i := item{
 		title:       r.titles[r.titleIndex],
 		description: r.descs[r.descIndex],
+		pass:        r.descs[r.descIndex],
 	}
 
 	r.titleIndex++
