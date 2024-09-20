@@ -2,32 +2,107 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
-	"strings"
+	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-var docStyle = lipgloss.NewStyle().Margin(1, 2)
+var (
+	appStyle = lipgloss.NewStyle().Padding(1, 2)
+
+	titleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFDF5")).
+			Background(lipgloss.Color("#25A065")).
+			Padding(0, 1)
+
+	statusMessageStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "#04B575", Dark: "#04B575"}).
+				Render
+)
 
 type item struct {
-	platform, username, password string
-	showPassword                 bool
+	title       string
+	description string
 }
 
-func (i item) Title() string { return i.platform }
-func (i item) Description() string {
-	if i.showPassword {
-		return fmt.Sprintf("%s | %s", i.username, i.password)
-	}
-	return fmt.Sprintf("%s | %s", i.username, maskPassword(i.password))
+func (i item) Title() string       { return i.title }
+func (i item) Description() string { return i.description }
+func (i item) FilterValue() string { return i.title }
+
+type listKeyMap struct {
+	toggleTitleBar  key.Binding
+	toggleStatusBar key.Binding
+	toggleHelpMenu  key.Binding
+	insertItem      key.Binding
 }
-func (i item) FilterValue() string { return i.platform }
+
+func newListKeyMap() *listKeyMap {
+	return &listKeyMap{
+		insertItem: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "add item"),
+		),
+		toggleTitleBar: key.NewBinding(
+			key.WithKeys("T"),
+			key.WithHelp("T", "toggle title"),
+		),
+		toggleStatusBar: key.NewBinding(
+			key.WithKeys("S"),
+			key.WithHelp("S", "toggle status"),
+		),
+		toggleHelpMenu: key.NewBinding(
+			key.WithKeys(" "),
+			key.WithHelp("space", "toggle help"),
+		),
+	}
+}
 
 type model struct {
-	list list.Model
+	list          list.Model
+	itemGenerator *randomItemGenerator
+	keys          *listKeyMap
+	delegateKeys  *delegateKeyMap
+}
+
+func newModel() model {
+	var (
+		itemGenerator randomItemGenerator
+		delegateKeys  = newDelegateKeyMap()
+		listKeys      = newListKeyMap()
+	)
+
+	// Make initial list of items
+	const numItems = 24
+	items := make([]list.Item, numItems)
+	for i := 0; i < numItems; i++ {
+		items[i] = itemGenerator.next()
+	}
+
+	// Setup list
+	delegate := newItemDelegate(delegateKeys)
+	groceryList := list.New(items, delegate, 0, 0)
+	groceryList.Title = "Groceries"
+	groceryList.Styles.Title = titleStyle
+	groceryList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listKeys.insertItem,
+			listKeys.toggleTitleBar,
+			listKeys.toggleStatusBar,
+			listKeys.toggleHelpMenu,
+		}
+	}
+
+	return model{
+		list:          groceryList,
+		keys:          listKeys,
+		delegateKeys:  delegateKeys,
+		itemGenerator: &itemGenerator,
+	}
 }
 
 func (m model) Init() tea.Cmd {
@@ -35,63 +110,60 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
-		}
-		if msg.String() == "enter" {
-			index := m.list.Index()
-			items := m.list.Items()
-			if index >= 0 && index < len(items) {
-				currentItem := items[index].(item)
-				currentItem.showPassword = !currentItem.showPassword
-				items[index] = currentItem
-				m.list.SetItems(items)
-			}
-		}
 	case tea.WindowSizeMsg:
-		h, v := docStyle.GetFrameSize()
+		h, v := appStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
+
+	case tea.KeyMsg:
+		// Don't match any of the keys below if we're actively filtering.
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
+
+		switch {
+		case key.Matches(msg, m.keys.toggleTitleBar):
+			v := !m.list.ShowTitle()
+			m.list.SetShowTitle(v)
+			m.list.SetShowFilter(v)
+			m.list.SetFilteringEnabled(v)
+			return m, nil
+
+		case key.Matches(msg, m.keys.toggleStatusBar):
+			m.list.SetShowStatusBar(!m.list.ShowStatusBar())
+			return m, nil
+
+		case key.Matches(msg, m.keys.toggleHelpMenu):
+			m.list.SetShowHelp(!m.list.ShowHelp())
+			return m, nil
+
+		case key.Matches(msg, m.keys.insertItem):
+			m.delegateKeys.remove.SetEnabled(true)
+			newItem := m.itemGenerator.next()
+			insCmd := m.list.InsertItem(0, newItem)
+			statusCmd := m.list.NewStatusMessage(statusMessageStyle("Added " + newItem.Title()))
+			return m, tea.Batch(insCmd, statusCmd)
+		}
 	}
 
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	// This will also call our delegate's update function.
+	newListModel, cmd := m.list.Update(msg)
+	m.list = newListModel
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
-	return docStyle.Render(m.list.View())
-}
-
-func maskPassword(password string) string {
-	return strings.Repeat("*", len(password))
-}
-
-func generateCustomItems() []list.Item {
-	return []list.Item{
-		item{platform: "Git", username: "dev@example.com", password: "gitpass123", showPassword: false},
-		item{platform: "Gmail", username: "user@gmail.com", password: "gmailpass456", showPassword: false},
-		item{platform: "GitHub", username: "githubuser", password: "githubpass789", showPassword: false},
-		item{platform: "Gitlab", username: "gitlabuser", password: "gitlabpass101", showPassword: false},
-		item{platform: "Bitbucket", username: "bitbucketuser", password: "bitbucketpass202", showPassword: false},
-		item{platform: "Jira", username: "jirauser@company.com", password: "jirapass303", showPassword: false},
-		item{platform: "Slack", username: "slackuser", password: "slackpass404", showPassword: false},
-		item{platform: "AWS", username: "awsuser", password: "awspass505", showPassword: false},
-		item{platform: "DigitalOcean", username: "douser", password: "dopass606", showPassword: false},
-		item{platform: "Heroku", username: "herokuuser", password: "herokupass707", showPassword: false},
-	}
+	return appStyle.Render(m.list.View())
 }
 
 func main() {
-	items := generateCustomItems()
+	rand.Seed(time.Now().UTC().UnixNano())
 
-	m := model{list: list.New(items, list.NewDefaultDelegate(), 0, 0)}
-	m.list.Title = "Platform Credentials (Press Enter to show/hide password)"
-
-	p := tea.NewProgram(m, tea.WithAltScreen())
-
-	if _, err := p.Run(); err != nil {
+	if _, err := tea.NewProgram(newModel(), tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
