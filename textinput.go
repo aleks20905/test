@@ -46,8 +46,8 @@ func newInputModel() inputModel {
 
 		case 2:
 			t.Placeholder = "Password"
-			t.EchoMode = textinput.EchoPassword
-			t.EchoCharacter = '•'
+			// t.EchoMode = textinput.EchoPassword
+			// t.EchoCharacter = '•'
 		}
 
 		m.inputs[i] = t

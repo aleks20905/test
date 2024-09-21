@@ -52,6 +52,7 @@ type listKeyMap struct {
 	toggleStatusBar key.Binding
 	toggleHelpMenu  key.Binding
 	insertItem      key.Binding
+	editItem        key.Binding
 }
 
 func newListKeyMap() *listKeyMap {
@@ -59,6 +60,10 @@ func newListKeyMap() *listKeyMap {
 		insertItem: key.NewBinding(
 			key.WithKeys("a"),
 			key.WithHelp("a", "add item"),
+		),
+		editItem: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "edit item"), // New binding for edit
 		),
 		toggleTitleBar: key.NewBinding(
 			key.WithKeys("T"),
@@ -80,6 +85,7 @@ type inputState int
 const (
 	normalState inputState = iota
 	addingItemState
+	editingItemState
 )
 
 type model struct {
@@ -143,18 +149,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.SetSize(msg.Width-h, msg.Height-v)
 
 	case tea.KeyMsg:
+		// Handle editing item mode
+		if m.state == editingItemState {
+			var cmd tea.Cmd
+			m.inputModel, cmd = m.inputModel.Update(msg)
+
+			// Handle quitting/canceling edit mode with "esc", "q", or "ctrl+c"
+			if msg.String() == "esc" || msg.String() == "q" || msg.String() == "ctrl+c" {
+				m.state = normalState // Return to normal state without updating
+				return m, nil
+			}
+
+			// Handle submitted edit
+			if m.inputModel.Submitted {
+				selectedItemIndex := m.list.Index() // Get index of the selected item
+				updatedItem := item{
+					title:       m.inputModel.inputs[0].Value(),
+					description: m.inputModel.inputs[1].Value(),
+					pass:        m.inputModel.inputs[2].Value(),
+					showPass:    false,
+				}
+				m.list.SetItem(selectedItemIndex, updatedItem) // Update the item in the list
+				statusCmd := m.list.NewStatusMessage(statusMessageStyle("Edited " + updatedItem.Title()))
+				m.state = normalState // Return to normal state
+				return m, statusCmd
+			}
+
+			return m, cmd
+		}
+
 		// Handle adding item mode
 		if m.state == addingItemState {
 			var cmd tea.Cmd
 			m.inputModel, cmd = m.inputModel.Update(msg)
-
-			// Handle quitting/canceling input mode with "esc", "q", or "ctrl+c"
-			if msg.String() == "esc" || msg.String() == "q" || msg.String() == "ctrl+c" {
-				m.state = normalState // Go back to normal state without submitting
-				return m, nil
-			}
-
-			// Handle submitted input
 			if m.inputModel.Submitted {
 				newItem := item{
 					title:       m.inputModel.inputs[0].Value(),
@@ -167,7 +194,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = normalState // Return to normal state
 				return m, tea.Batch(insCmd, statusCmd)
 			}
-
 			return m, cmd
 		}
 
@@ -175,7 +201,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keys.insertItem):
 			m.state = addingItemState
-			m.inputModel = newInputModel() // Reset input fields
+			m.inputModel = newInputModel() // Reset input fields for adding
+			return m, nil
+
+		case key.Matches(msg, m.keys.editItem): // Edit item key binding
+			selectedItem := m.list.SelectedItem().(item)              // Get selected item
+			m.inputModel = newInputModel()                            // Initialize input fields
+			m.inputModel.inputs[0].SetValue(selectedItem.title)       // Set current title
+			m.inputModel.inputs[1].SetValue(selectedItem.description) // Set current description
+			m.inputModel.inputs[2].SetValue(selectedItem.pass)        // Set current password
+			m.state = editingItemState                                // Switch to editing state
 			return m, nil
 
 		case key.Matches(msg, m.keys.toggleTitleBar):
@@ -204,6 +239,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	if m.state == addingItemState {
+		return appStyle.Render(m.inputModel.View())
+	}
+	if m.state == editingItemState {
 		return appStyle.Render(m.inputModel.View())
 	}
 	return appStyle.Render(m.list.View())
