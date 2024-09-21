@@ -57,8 +57,7 @@ func newItemDelegate(keys *delegateKeyMap) list.DefaultDelegate {
 			case key.Matches(msg, keys.showPass2):
 				index := m.Index()
 				i := m.Items()[index].(item)
-				text := i.pass // Assuming you want to copy the password
-				err := copyToClipboardWithTimeout(text, 10*time.Second)
+				err := copyToClipboardWithTimeout(i.pass, 10*time.Second)
 				if err != nil {
 					return m.NewStatusMessage(statusMessageStyle("Problem: " + err.Error()))
 				}

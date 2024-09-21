@@ -32,7 +32,7 @@ type item struct {
 }
 
 func (i item) Title() string { return i.title }
-func (i item) Description() string {
+func (i item) Description() string { // todo change to fit mail
 	if i.showPass {
 		return fmt.Sprintf("%-15s | %-10s", i.description, i.pass)
 	}
