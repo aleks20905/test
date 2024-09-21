@@ -1,12 +1,20 @@
 package main
 
 import (
+	"sync"
+	"time"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"golang.design/x/clipboard"
 )
 
 var prevItemIndex *int
+var (
+	mu       sync.Mutex
+	lastCopy time.Time
+)
 
 func newItemDelegate(keys *delegateKeyMap) list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
@@ -34,6 +42,7 @@ func newItemDelegate(keys *delegateKeyMap) list.DefaultDelegate {
 				}
 				return m.NewStatusMessage(statusMessageStyle("Deleted " + title))
 
+			// show the password for the specific item
 			case key.Matches(msg, keys.showPass):
 				index := m.Index()
 				prevItemIndex = &index
@@ -44,13 +53,18 @@ func newItemDelegate(keys *delegateKeyMap) list.DefaultDelegate {
 				m.Items()[index] = i
 				return m.NewStatusMessage(statusMessageStyle("shows " + i.pass))
 
+			// copyes the passowrd to the clipboard and afther spec_time clears the clipboard
 			case key.Matches(msg, keys.showPass2):
+				index := m.Index()
+				i := m.Items()[index].(item)
+				text := i.pass // Assuming you want to copy the password
+				err := copyToClipboardWithTimeout(text, 10*time.Second)
+				if err != nil {
+					return m.NewStatusMessage(statusMessageStyle("Problem: " + err.Error()))
+				}
+				return m.NewStatusMessage(statusMessageStyle("Copied to clipboard (will clear in 10 seconds)"))
 
-				b := m.Items()[m.Index()].(item)
-
-				// i := m.SelectedItem().(item)
-				return m.NewStatusMessage(statusMessageStyle("shows " + b.pass))
-
+			// after showind the password this hides it after u move
 			case key.Matches(msg, keys.movement):
 				if prevItemIndex != nil {
 					// Create a modified copy of the selected item
@@ -84,6 +98,29 @@ func newItemDelegate(keys *delegateKeyMap) list.DefaultDelegate {
 	}
 
 	return d
+}
+
+func copyToClipboardWithTimeout(text string, duration time.Duration) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if err := clipboard.Init(); err != nil {
+		return err
+	}
+
+	clipboard.Write(clipboard.FmtText, []byte(text))
+	lastCopy = time.Now()
+
+	go func() {
+		time.Sleep(duration)
+		mu.Lock()
+		defer mu.Unlock()
+		if time.Since(lastCopy) >= duration {
+			clipboard.Write(clipboard.FmtText, []byte(""))
+		}
+	}()
+
+	return nil
 }
 
 type delegateKeyMap struct {
@@ -133,12 +170,12 @@ func newDelegateKeyMap() *delegateKeyMap {
 			key.WithHelp("h", "show pass"),
 		),
 		showPass2: key.NewBinding(
-			key.WithKeys("i"),
-			key.WithHelp("h", "show pass"),
+			key.WithKeys("y"),
+			key.WithHelp("y", "copy pass"),
 		),
 		movement: key.NewBinding(
 			key.WithKeys("up", "down", "k", "j", "g", "ctrl+g", "home", "end"),
-			key.WithHelp("h", "show pass"),
+			// key.WithHelp("h", "show pass"),
 		),
 	}
 }
