@@ -59,27 +59,35 @@ func (m inputModel) Update(msg tea.Msg) (inputModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "ctrl+c", "q", "esc":
+			// Handle quitting or canceling (going back without submitting)
+			m.Submitted = false
+			return m, tea.Quit
+
 		case "tab", "shift+tab", "enter", "up", "down":
 			s := msg.String()
 
+			// Check if the user pressed "enter" while focused on the last input
 			if s == "enter" && m.focusIdx == len(m.inputs) {
 				m.Submitted = true
 				return m, nil
 			}
 
-			// Cycle indexes
+			// Cycle through input fields
 			if s == "up" || s == "shift+tab" {
 				m.focusIdx--
 			} else {
 				m.focusIdx++
 			}
 
+			// Keep cycling within bounds
 			if m.focusIdx > len(m.inputs) {
 				m.focusIdx = 0
 			} else if m.focusIdx < 0 {
 				m.focusIdx = len(m.inputs)
 			}
 
+			// Focus the current input field
 			cmds := make([]tea.Cmd, len(m.inputs))
 			for i := 0; i <= len(m.inputs)-1; i++ {
 				if i == m.focusIdx {

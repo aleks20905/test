@@ -147,6 +147,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == addingItemState {
 			var cmd tea.Cmd
 			m.inputModel, cmd = m.inputModel.Update(msg)
+
+			// Handle quitting/canceling input mode with "esc", "q", or "ctrl+c"
+			if msg.String() == "esc" || msg.String() == "q" || msg.String() == "ctrl+c" {
+				m.state = normalState // Go back to normal state without submitting
+				return m, nil
+			}
+
+			// Handle submitted input
 			if m.inputModel.Submitted {
 				newItem := item{
 					title:       m.inputModel.inputs[0].Value(),
@@ -159,6 +167,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = normalState // Return to normal state
 				return m, tea.Batch(insCmd, statusCmd)
 			}
+
 			return m, cmd
 		}
 
